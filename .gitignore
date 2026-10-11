@@ -5,9 +5,14 @@ dist
 target
 target_ra
 target_wasm
-<<<<<<< HEAD
 
-# Nixos
-flake.lock
-=======
->>>>>>> 40d0dee (init commit)
+# Devenv
+.devenv*
+devenv.local.nix
+devenv.local.yaml
+
+# direnv
+.direnv
+
+# pre-commit
+.pre-commit-config.yaml

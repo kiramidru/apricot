@@ -1,175 +1,154 @@
-use crate::models::{Document, ReaderSettings};
-use eframe::egui; // Import pure data types
-
-use egui_phosphor_icons::{add_fonts, icons};
-use std::collections::HashSet;
-use std::sync::mpsc::{Receiver, Sender, channel};
-
-use crate::{models::Document, services::manga_parser::MangaReader, ui::components::CustomButton};
+use crate::ui::components::{
+    render_toolbar, render_topbar, ToolbarAction, TopBarAction, TopBarMode,
+};
+use crate::ui::theme::{colors, configure_visuals, setup_fonts};
+use crate::ui::views::{
+    render_settings, AppView, DocumentContent, HomeAction, HomeView, SettingsAction, SettingsState,
+};
+use eframe::egui::{self, Pos2, Rect, Stroke, Vec2};
 
 pub struct Apricot {
-    sender: Sender<(usize, egui::ColorImage)>,
-    receiver: Receiver<(usize, egui::ColorImage)>,
-
-    active_document: Option<Document>,
-
-    current_file_path: Option<String>,
-    document_title: String,
-
+    view: AppView,
+    previous_view: Option<AppView>,
+    home: HomeView,
+    document: DocumentContent,
+    settings: SettingsState,
     current_page: usize,
     total_pages: usize,
-    texture_cache: Vec<Option<egui::TextureHandle>>,
-    loading: HashSet<usize>,
+    zoom_pct: usize,
 }
 
 impl Apricot {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let mut fonts = egui::FontDefinitions::default();
-        add_fonts(&mut fonts);
-        cc.egui_ctx.set_fonts(fonts);
-        cc.egui_ctx.set_visuals(egui::Visuals::light());
-
-        let reader = MangaReader::new("./test.cbz").expect("Failed to initialize manga reader");
-        let cache_size = reader.file_names.len();
-        let (sender, receiver) = channel();
+        setup_fonts(&cc.egui_ctx);
+        configure_visuals(&cc.egui_ctx);
 
         Self {
-            document_title: "test.cbz".to_owned(),
+            view: AppView::Home,
+            previous_view: None,
+            home: HomeView::default(),
+            document: DocumentContent::default(),
+            settings: SettingsState::default(),
             current_page: 1,
-            total_pages: cache_size,
-            texture_cache: vec![None; cache_size],
-            sender,
-            receiver,
-            loading: HashSet::new(),
-            active_document: Some(Document::Manga(reader)),
+            total_pages: 13,
+            zoom_pct: 100,
         }
     }
 
-    fn handle_async_textures(&mut self, ctx: &egui::Context) {
-        while let Ok((index, color_image)) = self.receiver.try_recv() {
-            let handle =
-                ctx.load_texture(format!("page_{}", index), color_image, Default::default());
-            self.texture_cache[index] = Some(handle);
-            self.loading.remove(&index);
+    fn navigate_to_settings(&mut self) {
+        if !matches!(self.view, AppView::Settings) {
+            self.previous_view = Some(self.view.clone());
+            self.view = AppView::Settings;
         }
     }
 
-    fn render_global_controls(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::top("global_controls")
-            .frame(egui::Frame {
-                fill: ctx.style().visuals.panel_fill,
-                inner_margin: egui::Margin::symmetric(10, 10),
-                ..Default::default()
-            })
-            .show(ctx, |ui| {
-                ui.horizontal_centered(|ui| {
-                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                        ui.add(CustomButton::new(icons::ARROW_LEFT).border(false));
-                        ui.label(icons::LINE_VERTICAL);
-                        ui.label(&self.document_title);
-                    });
-
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.add(CustomButton::new(icons::INFO));
-                        ui.add(CustomButton::new(icons::BOOKMARK_SIMPLE));
-                    });
-                });
-            });
-    }
-
-    fn render_local_controls(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::top("local_controls")
-            .frame(egui::Frame {
-                fill: ctx.style().visuals.panel_fill,
-                inner_margin: egui::Margin::symmetric(10, 10),
-                ..Default::default()
-            })
-            .show(ctx, |ui| {
-                ui.columns(3, |columns| {
-                    columns[0].horizontal(|ui| {
-                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                            ui.add(CustomButton::new(icons::MAGNIFYING_GLASS).border(false));
-                            ui.add(CustomButton::new(icons::CARET_UP).border(false));
-                            ui.label(format!("{} / {}", self.current_page, self.total_pages));
-                            ui.add(CustomButton::new(icons::CARET_DOWN).border(false));
-                        });
-                    });
-
-                    columns[1].horizontal(|ui| {
-                        ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-                            ui.label("Apricot Reader");
-                        });
-                    });
-
-                    columns[2].horizontal(|ui| {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.add(CustomButton::new(icons::DOTS_THREE).border(false));
-                            ui.add(CustomButton::new(icons::PRINTER).border(false));
-                            ui.add(CustomButton::new(icons::ARROWS_OUT_SIMPLE).border(false));
-                        });
-                    });
-                });
-            });
-    }
-
-    fn render_reader_canvas(&mut self, ctx: &egui::Context) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            let Some(document) = &self.active_document else {
-                ui.centered_and_justified(|ui| {
-                    ui.label("No document open.");
-                });
-                return;
-            };
-
-            match document {
-                Document::Manga(reader) => self.render_manga_view(ui, ctx, reader),
-                Document::Pdf { .. } => {
-                    ui.label("PDF view not implemented yet");
-                }
-                Document::Epub { .. } => {
-                    ui.label("EPUB view not implemented yet");
-                }
-            }
-        });
-    }
-
-    fn render_manga_view(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, reader: &MangaReader) {
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for i in 0..reader.file_names.len() {
-                if let Some(texture) = &self.texture_cache[i] {
-                    let available_width = ui.available_width();
-                    ui.add(
-                        egui::Image::new(&*texture)
-                            .fit_to_exact_size(egui::Vec2::new(available_width, f32::INFINITY))
-                            .maintain_aspect_ratio(true),
-                    );
-                } else if !self.loading.contains(&i) {
-                    self.loading.insert(i);
-                    let sender = self.sender.clone();
-                    let bytes = reader.get_page(i).expect("Failed to load page");
-
-                    rayon::spawn(move || {
-                        let img = image::load_from_memory(&bytes).expect("Decode fail");
-                        let scaled = img.resize(800, 2000, image::imageops::FilterType::Triangle);
-                        let size = [scaled.width() as usize, scaled.height() as usize];
-                        let rgba = scaled.to_rgba8();
-                        let color_image = egui::ColorImage::from_rgba_unmultiplied(
-                            size,
-                            rgba.as_flat_samples().as_slice(),
-                        );
-                        sender.send((i, color_image)).ok();
-                    });
-                }
-            }
-        });
+    fn navigate_back(&mut self) {
+        if let Some(prev) = self.previous_view.take() {
+            self.view = prev;
+        } else {
+            self.view = AppView::Home;
+        }
     }
 }
 
 impl eframe::App for Apricot {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.handle_async_textures(ctx);
-        self.render_global_controls(ctx);
-        self.render_local_controls(ctx);
-        self.render_reader_canvas(ctx);
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE.fill(colors::CARD_BG))
+            .show(ctx, |ui| {
+                let avail = ui.available_size();
+                let origin = ui.min_rect().min;
+
+                // --- 1. Top Bar Component ---
+                let topbar_h = 48.0_f32;
+                let topbar_rect = Rect::from_min_size(origin, Vec2::new(avail.x, topbar_h));
+                let mut topbar_ui = ui.new_child(egui::UiBuilder::new().max_rect(topbar_rect));
+
+                let mode = match &self.view {
+                    AppView::Home => TopBarMode::Home,
+                    AppView::Document { title, .. } => TopBarMode::Document { title },
+                    AppView::Settings => TopBarMode::Settings,
+                };
+
+                match render_topbar(&mut topbar_ui, mode, topbar_rect) {
+                    TopBarAction::None => {}
+                    TopBarAction::Back => self.navigate_back(),
+                    TopBarAction::NavigateHome => self.view = AppView::Home,
+                    TopBarAction::NavigateSettings => self.navigate_to_settings(),
+                    TopBarAction::OpenFile => self.home.open_file_dialog(ui.ctx().clone()),
+                }
+
+                // Divider 1
+                let div1_y = origin.y + topbar_h;
+                ui.painter().line_segment(
+                    [Pos2::new(origin.x, div1_y), Pos2::new(origin.x + avail.x, div1_y)],
+                    Stroke::new(1.0_f32, colors::DIVIDER),
+                );
+
+                // --- 2. Views Router ---
+                match &self.view {
+                    AppView::Home => {
+                        let home_h = (avail.y - topbar_h).max(100.0);
+                        let home_rect = Rect::from_min_size(Pos2::new(origin.x, div1_y), Vec2::new(avail.x, home_h));
+                        let mut home_ui = ui.new_child(egui::UiBuilder::new().max_rect(home_rect));
+
+                        if let HomeAction::OpenDocument { title, path } = self.home.render(&mut home_ui, avail.x) {
+                            self.view = AppView::Document { title, path };
+                        }
+                    }
+                    AppView::Document { .. } => {
+                        // Toolbar Component
+                        let toolbar_h = 38.0_f32;
+                        let toolbar_rect = Rect::from_min_size(Pos2::new(origin.x, div1_y), Vec2::new(avail.x, toolbar_h));
+                        let mut toolbar_ui = ui.new_child(egui::UiBuilder::new().max_rect(toolbar_rect));
+
+                        match render_toolbar(
+                            &mut toolbar_ui,
+                            toolbar_rect,
+                            self.current_page,
+                            self.total_pages,
+                            self.zoom_pct,
+                        ) {
+                            ToolbarAction::None => {}
+                            ToolbarAction::PrevPage => {
+                                self.current_page = (self.current_page.saturating_sub(1)).max(1);
+                            }
+                            ToolbarAction::NextPage => {
+                                self.current_page = (self.current_page + 1).min(self.total_pages);
+                            }
+                            ToolbarAction::ZoomIn => {
+                                self.zoom_pct = (self.zoom_pct + 10).min(300);
+                            }
+                            ToolbarAction::ZoomOut => {
+                                self.zoom_pct = self.zoom_pct.saturating_sub(10).max(25);
+                            }
+                        }
+
+                        // Divider 2
+                        let div2_y = div1_y + toolbar_h;
+                        ui.painter().line_segment(
+                            [Pos2::new(origin.x, div2_y), Pos2::new(origin.x + avail.x, div2_y)],
+                            Stroke::new(1.0_f32, colors::DIVIDER),
+                        );
+
+                        // Document Canvas View
+                        let doc_h = (avail.y - (topbar_h + toolbar_h)).max(100.0);
+                        let doc_rect = Rect::from_min_size(Pos2::new(origin.x, div2_y), Vec2::new(avail.x, doc_h));
+                        let mut doc_ui = ui.new_child(egui::UiBuilder::new().max_rect(doc_rect));
+                        self.document.render(&mut doc_ui, avail.x);
+                    }
+                    AppView::Settings => {
+                        let settings_h = (avail.y - topbar_h).max(100.0);
+                        let settings_rect = Rect::from_min_size(Pos2::new(origin.x, div1_y), Vec2::new(avail.x, settings_h));
+                        let mut settings_ui = ui.new_child(egui::UiBuilder::new().max_rect(settings_rect));
+
+                        match render_settings(&mut settings_ui, &mut self.settings, avail.x) {
+                            SettingsAction::None => {}
+                            SettingsAction::Back => self.navigate_back(),
+                            SettingsAction::ClearRecentHistory => self.home.recent_docs.clear(),
+                        }
+                    }
+                }
+            });
     }
 }

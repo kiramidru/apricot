@@ -1,9 +1,9 @@
-pub mod button;
-<<<<<<< HEAD
-
-// Re-export the struct so you can use it as `crate::ui::CustomButton`
-// instead of `crate::ui::buttons::CustomButton`
-pub use button::CustomButton;
-=======
 pub mod app;
->>>>>>> 40d0dee (init commit)
+pub mod components;
+pub mod theme;
+pub mod views;
+
+pub use app::Apricot;
+
+pub const DEFAULT_WIDTH: f32 = 580.0;
+pub const DEFAULT_HEIGHT: f32 = 800.0;
