@@ -10,6 +10,7 @@ pub enum ToolbarAction {
     NextPage,
     ZoomIn,
     ZoomOut,
+    SetZoom(usize),
 }
 
 pub fn render_toolbar(
@@ -73,10 +74,31 @@ pub fn render_toolbar(
         action = ToolbarAction::ZoomOut;
     }
 
-    // Dropdown pill
+    // Dropdown pill & Popup Menu
     let zoom_rect = Rect::from_center_size(Pos2::new(cx, mid_y), egui::vec2(56.0, 22.0));
     let mut zoom_ui = ui.new_child(egui::UiBuilder::new().max_rect(zoom_rect));
-    zoom_dropdown(&mut zoom_ui, zoom_pct);
+    let zoom_id = zoom_ui.make_persistent_id("toolbar_zoom_btn");
+    let is_open = egui::Popup::is_id_open(ui.ctx(), zoom_id);
+    let zoom_resp = zoom_dropdown(&mut zoom_ui, zoom_pct, is_open);
+
+    egui::Popup::menu(&zoom_resp).show(|ui| {
+        ui.set_min_width(90.0);
+        let zoom_presets = [50, 75, 100, 125, 150, 200, 250, 300];
+        for z in zoom_presets {
+            let label = format!("{}%", z);
+            let is_sel = z == zoom_pct;
+            if ui.selectable_label(is_sel, label).clicked() {
+                action = ToolbarAction::SetZoom(z);
+            }
+        }
+        ui.separator();
+        if ui.selectable_label(false, "Fit Width").clicked() {
+            action = ToolbarAction::SetZoom(100);
+        }
+        if ui.selectable_label(false, "Fit Page").clicked() {
+            action = ToolbarAction::SetZoom(100);
+        }
+    });
 
     // Plus
     let plus_rect = Rect::from_center_size(Pos2::new(cx + 44.0, mid_y), egui::vec2(22.0, 22.0));

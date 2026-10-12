@@ -80,36 +80,55 @@ pub fn page_box(ui: &mut Ui, page: usize) -> Response {
     response
 }
 
-/// Zoom dropdown pill showing "100% ▾"
-pub fn zoom_dropdown(ui: &mut Ui, zoom_pct: usize) -> Response {
+/// Zoom dropdown pill showing "100% ▾", highlighted when open or hovered
+pub fn zoom_dropdown(ui: &mut Ui, zoom_pct: usize, is_open: bool) -> Response {
     let size = Vec2::new(56.0, 22.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
         let hovered = response.hovered();
 
-        if hovered {
-            painter.rect_filled(rect, CornerRadius::same(4), colors::BTN_HOVER_BG);
-        }
+        let bg = if is_open {
+            colors::APRICOT_SOFT
+        } else if hovered {
+            colors::BTN_HOVER_BG
+        } else {
+            colors::CARD_BG
+        };
+
+        painter.rect_filled(rect, CornerRadius::same(4), bg);
+
+        let border_stroke = if is_open {
+            Stroke::new(1.0_f32, colors::APRICOT_BORDER)
+        } else {
+            Stroke::new(1.0_f32, colors::BTN_BORDER)
+        };
+        painter.rect_stroke(rect, CornerRadius::same(4), border_stroke, egui::StrokeKind::Inside);
 
         let text = format!("{}%", zoom_pct);
         let center_y = rect.center().y;
 
+        let text_col = if is_open { colors::APRICOT_DARK } else { colors::TEXT_PRIMARY };
         painter.text(
             Pos2::new(rect.center().x - 5.0, center_y),
             egui::Align2::CENTER_CENTER,
             text,
             typo::toolbar_text(),
-            colors::TEXT_PRIMARY,
+            text_col,
         );
 
+        let caret_icon = if is_open {
+            egui_phosphor_icons::icons::CARET_UP.0
+        } else {
+            egui_phosphor_icons::icons::CARET_DOWN.0
+        };
         let chev_font = FontId::new(8.5_f32, egui::FontFamily::Name("phosphor-regular".into()));
         painter.text(
             Pos2::new(rect.max.x - 8.0, center_y),
             egui::Align2::CENTER_CENTER,
-            egui_phosphor_icons::icons::CARET_DOWN.0,
+            caret_icon,
             chev_font,
-            colors::ICON_BTN,
+            if is_open { colors::APRICOT_DARK } else { colors::ICON_BTN },
         );
     }
     response

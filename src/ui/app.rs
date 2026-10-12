@@ -122,6 +122,9 @@ impl eframe::App for Apricot {
                             ToolbarAction::ZoomOut => {
                                 self.zoom_pct = self.zoom_pct.saturating_sub(10).max(25);
                             }
+                            ToolbarAction::SetZoom(z) => {
+                                self.zoom_pct = z;
+                            }
                         }
 
                         // Divider 2
